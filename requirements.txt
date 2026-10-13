@@ -1,0 +1,7 @@
+# Moteur d'inférence TFLite (Raspberry Pi OS 64 bits et PC)
+ai-edge-litert
+numpy
+pillow
+# Optionnel : tests et caméra USB
+pytest
+# opencv-python   # sur le Pi, préférer : sudo apt install python3-opencv
