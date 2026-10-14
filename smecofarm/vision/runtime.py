@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 # Dossier racine du projet (contient models/)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MODELS_DIR = PROJECT_ROOT / "models"
 
 

@@ -1,0 +1,77 @@
+# Configuration SmEcoFarm - un seul Raspberry Pi 4 pour le champ et l'entrepôt.
+# Les secrets (token Blynk, mot de passe Gmail) vont dans le fichier .env.
+
+champ:
+  actif: true
+  # Webcam USB du champ : index (0, 1, 2...) ou chemin stable /dev/v4l/by-id/...
+  # (avec 2 webcams, chaque webcam crée souvent 2 index : essayer 0 et 2)
+  camera: 0
+  intervalle_oiseaux_s: 1.0        # une analyse « oiseaux » par seconde
+  seuil_oiseaux: 0.5               # confiance minimale (0 à 1)
+  pause_buzzer_s: 30               # délai minimum entre deux déclenchements du buzzer
+  intervalle_maladies_s: 1800      # une analyse « maladies » toutes les 30 min
+  plante: tomato                   # classes PlantVillage à garder
+  seuil_maladies: 0.6              # en dessous : résultat « incertain »
+
+entrepot:
+  actif: true
+  camera: 2                        # webcam USB de l'entrepôt (détection de flamme)
+  intervalle_capteurs_s: 3.0       # le DHT11 ne supporte pas plus d'une mesure / 2 s
+  intervalle_camera_s: 1.0
+
+  conservation:                    # seuils pour des tomates mûres
+    temp_ventilateur_marche: 24    # °C : le ventilateur démarre au-dessus
+    temp_ventilateur_arret: 22     # °C : il s'arrête en dessous (hystérésis)
+    temp_alerte_haute: 30          # °C : alerte « dégradation rapide »
+    temp_alerte_basse: 7           # °C : alerte « dommage par le froid »
+    humidite_alerte_basse: 60      # % : alerte « air trop sec »
+    humidite_ventilateur_marche: null  # désactivé (DHT11 limité à 80 %) ; avec un DHT22 : 95
+    humidite_ventilateur_arret: 90
+    ventiler_si_air_vicie: true    # ventiler quand le MQ-135 signale un air anormal
+
+  incendie:
+    hausse_temp_c: 5               # montée de 5 °C...
+    fenetre_hausse_s: 60           # ... en 60 secondes = indice incendie
+    temp_max_c: 45                 # ou température supérieure à 45 °C
+
+  camera_feu:
+    proportion_min: 0.005          # part minimale de l'image couverte par la flamme
+    images_consecutives: 3         # images de suite pour confirmer
+    exiger_scintillement: true     # une flamme bouge ; un objet orange fixe non
+    scintillement_min: 0.15
+
+materiel:                          # numéros GPIO (BCM), voir docs/CABLAGE.md
+  dht11_gpio: 4                    # broche physique 7
+  mq135_do_gpio: 17                # broche physique 11 (via pont diviseur !)
+  mq135_actif_bas: true            # DO = 0 quand du gaz est détecté (LED DO allumée)
+  mq135_prechauffage_s: 180
+  relais_ventilateur_gpio: 27      # broche physique 13
+  relais_actif_bas: true           # la plupart des modules relais
+  buzzer_gpio: 22                  # broche physique 15
+
+blynk:
+  actif: true                      # nécessite BLYNK_TOKEN dans .env
+  serveur: blynk.cloud             # ou le serveur de votre région (ex. fra1.blynk.cloud)
+  intervalle_s: 5
+  pins:                            # pins virtuelles des datastreams (null = non utilisée)
+    oiseau_present: V0             # 0/1
+    oiseaux_compteur: V1           # entier
+    maladie: V2                    # texte
+    maladie_confiance: V3          # %
+    buzzer_oiseaux_actif: V4       # interrupteur (commande) : 1 = buzzer autorisé
+    temperature: V5                # °C
+    humidite: V6                   # %
+    air_anormal: V7                # 0/1
+    ventilateur: V8                # 0/1
+    mode_ventilateur: V9           # commande : 0 = auto, 1 = marche forcée, 2 = arrêt forcé
+    niveau_incendie: V10           # 0 normal, 1 vigilance, 2 alerte
+    rearmement: V11                # bouton (commande) : réarmer l'alerte incendie
+    message: V12                   # texte d'état
+
+email:
+  actif: true                      # nécessite GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_TO dans .env
+  pause_min: 10                    # délai minimum entre deux e-mails
+
+journal:
+  dossier: data                    # CSV, photos et fichier de log
+  intervalle_s: 60                 # une ligne CSV par minute

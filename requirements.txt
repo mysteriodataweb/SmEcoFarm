@@ -2,6 +2,16 @@
 ai-edge-litert
 numpy
 pillow
-# Optionnel : tests et caméra USB
+pyyaml
+
+# Raspberry Pi uniquement : capteur DHT11
+# (gpiozero et lgpio sont déjà installés sur Raspberry Pi OS ; le venv les voit
+#  grâce à l'option --system-site-packages)
+adafruit-circuitpython-dht ; platform_machine == "aarch64"
+
+# Tests
 pytest
-# opencv-python   # sur le Pi, préférer : sudo apt install python3-opencv
+
+# Webcams : installer OpenCV avec apt sur le Pi (plus rapide que pip) :
+#   sudo apt install python3-opencv
+# Sur PC : pip install opencv-python

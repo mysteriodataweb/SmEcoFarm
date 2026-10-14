@@ -1,155 +1,199 @@
-# SmEcoFarm : vision par ordinateur embarquée (Edge AI)
+# SmEcoFarm : ferme intelligente sur Raspberry Pi (Edge AI)
 
-Prototype scolaire : une caméra filme les cultures, le **Raspberry Pi 4** exécute
-localement deux modèles d'IA **pré-entraînés, sans entraînement supplémentaire**,
-puis envoie les résultats au dashboard **Blynk** (étape suivante).
+Prototype scolaire. **Un seul Raspberry Pi 4** surveille :
 
-| Objectif | Modèle | Ce qu'il fait |
+| Station | Matériel | Fonctions |
 |---|---|---|
-| Détection d'oiseaux | EfficientDet-Lite0 (COCO) | Dit s'il y a un oiseau et où il se trouve (boîte) |
-| Détection de maladies | MobileNetV2 (PlantVillage) | Classe une feuille de tomate : saine ou l'une de 9 maladies |
+| **Champ** | webcam USB n° 1, buzzer actif | Détection d'oiseaux (IA) → buzzer pour les chasser ; analyse des maladies des feuilles de tomate (IA) |
+| **Entrepôt** | webcam USB n° 2, DHT11, MQ-135, relais + mini ventilateur 5 V, buzzer (partagé) | Conservation des tomates (température, humidité, air) → ventilateur ; sécurité incendie → e-mail Gmail avec photo + sirène |
 
-> État actuel : **étape 1, les modèles**. La caméra, le buzzer et Blynk viendront ensuite.
+Tout est affiché sur **Blynk**. Les modèles d'IA sont **pré-entraînés** et tournent **sur le Pi**, sans Internet.
 
-## Organisation
+## Organisation du code
 
 ```
-models/
-  bird/      efficientdet_lite0.tflite, labelmap.txt   (4,6 Mo)
-  disease/   plant_disease_model.tflite, plant_labels.txt  (11,6 Mo)
+main.py                    programme principal
+config.yaml                seuils, broches GPIO, webcams, pins Blynk
+.env                       secrets (token Blynk, Gmail) - à créer depuis .env.example
 smecofarm/
-  bird_detector.py       classe BirdDetector
-  disease_classifier.py  classe DiseaseClassifier
-  runtime.py             chargement TFLite + utilitaires image
-scripts/
-  test_models.py         tester sur une image, un dossier ou la caméra
-  evaluate_disease.py    mesurer la précision sur des images étiquetées
-  benchmark.py           mesurer la vitesse (à lancer sur le Pi)
-tests/test_models.py     tests automatiques (pytest)
-test_images/
-  birds/                 1 photo d'oiseau + 6 photos sans oiseau
-  tomato/<classe>/       10 feuilles de tomate par classe (100 images)
+  vision/                  oiseaux (EfficientDet-Lite0), maladies (MobileNetV2), flammes (couleur), webcams
+  capteurs/                DHT11, MQ-135, capteurs simulés
+  actionneurs/             ventilateur (relais), buzzer
+  regles/                  logique conservation et incendie (testable sans matériel)
+  services/                Blynk (API HTTP), e-mail Gmail, journal CSV, configuration
+  stations/                champ.py, entrepot.py
+  app.py                   assemblage et boucle principale
+models/                    modèles TFLite (oiseaux, maladies)
+docs/CABLAGE.md            câblage des capteurs ⚠️ à lire avant de brancher
+docs/BLYNK.md              configuration du dashboard Blynk
+deploy/smecofarm.service   démarrage automatique au boot
+scripts/                   tests des modèles d'IA (image, dossier, webcam), précision, vitesse
+tests/                     tests automatiques (27 tests)
 ```
 
-## Installation
+## Fonctionnement
 
-Sur le Raspberry Pi 4 : **Raspberry Pi OS 64 bits (Bookworm)**. Même chose sur PC.
+### Station Champ
+- Une image par seconde → **détection d'oiseaux**. Si un oiseau est vu : photo enregistrée,
+  compteur, **buzzer** avec un rythme aléatoire (pour limiter l'accoutumance), puis 30 s de pause.
+- Toutes les 30 minutes → **analyse de maladie** sur la même image (10 classes de la tomate).
+  Une maladie détectée avec assez de confiance déclenche une notification Blynk.
+
+### Station Entrepôt : conservation (tomates mûres)
+
+| Règle | Seuil (modifiable dans `config.yaml`) |
+|---|---|
+| Ventilateur en marche | température > **24 °C**, ou air anormal (MQ-135) |
+| Ventilateur à l'arrêt | température < **22 °C** et air normal (hystérésis : évite les marche/arrêt incessants) |
+| Alerte « dégradation rapide » | ≥ **30 °C** |
+| Alerte « dommage par le froid » | ≤ **7 °C** |
+| Alerte « air trop sec » | humidité ≤ **60 %** |
+
+- **Pourquoi pas de règle « humidité trop haute » ?** Le DHT11 ne mesure qu'entre 20 et 80 % (±5 %),
+  alors que l'idéal pour la tomate est 85–95 %. La règle existe mais est désactivée ; il suffit de
+  l'activer avec un DHT22.
+- **Limite du ventilateur :** il ne fabrique pas de froid. Il remplace l'air intérieur par l'air extérieur,
+  évacue la chaleur produite par les fruits et les gaz (dont l'éthylène qui accélère le mûrissement).
+  Au Maroc en été, il ne pourra pas descendre sous la température extérieure.
+- Depuis Blynk, le ventilateur peut être mis en **auto / marche forcée / arrêt forcé**.
+
+### Station Entrepôt : incendie
+
+Trois indices sont surveillés :
+
+1. **Flamme** vue par la webcam (couleur rouge-orangé + scintillement, sur 3 images de suite) ;
+2. **Température** : montée de 5 °C en 1 minute, ou plus de 45 °C ;
+3. **Fumée / gaz** : sortie DO du MQ-135.
+
+| Niveau | Condition | Actions |
+|---|---|---|
+| 0 Normal | aucun indice | — |
+| 1 Vigilance | 1 indice (peut être une fausse alerte) | affiché sur Blynk, photo enregistrée |
+| 2 **Alerte** | ≥ 2 indices | **e-mail Gmail avec photo**, notification Blynk, **sirène**, **ventilateur coupé** (il attiserait le feu) |
+
+L'alerte reste active jusqu'au **réarmement** par le bouton Blynk (V11). Un seul e-mail toutes les 10 minutes au maximum.
+
+### MQ-135 sans ADS1115
+
+Le Raspberry Pi n'a pas d'entrée analogique : il ne sait lire que 0 ou 1. La sortie AO du MQ-135
+donne une tension variable, illisible directement ; il faudrait un petit convertisseur **ADS1115**
+(environ 3 €) pour obtenir une vraie mesure. On utilise donc la sortie **DO**, qui passe à 1 quand
+le gaz dépasse un seuil réglé avec le potentiomètre du module : on sait si l'air est **normal ou
+anormal**, sans valeur précise. C'est suffisant pour le prototype ; l'ADS1115 est une amélioration future.
+
+## Installation sur le Raspberry Pi 4
+
+Raspberry Pi OS **64 bits** (Bookworm). Câbler d'abord selon [docs/CABLAGE.md](docs/CABLAGE.md).
 
 ```bash
-git clone <url-du-depot> SmEcoFarm && cd SmEcoFarm
-python3 -m venv --system-site-packages .venv   # --system-site-packages : réutilise picamera2/opencv installés par apt
+sudo apt update && sudo apt install -y python3-opencv python3-yaml v4l-utils
+git clone https://github.com/mysteriodataweb/SmEcoFarm.git && cd SmEcoFarm
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env && nano .env      # token Blynk et identifiants Gmail
 ```
 
-## Utilisation
+Dans `config.yaml`, vérifier les numéros des webcams (`champ.camera`, `entrepot.camera`) :
+`v4l2-ctl --list-devices` les affiche.
+
+### Gmail : mot de passe d'application
+
+1. Sur le compte Google qui envoie les alertes : activer la **validation en deux étapes**.
+2. Aller sur <https://myaccount.google.com/apppasswords>, créer un mot de passe nommé « SmEcoFarm ».
+3. Copier les 16 lettres dans `.env` :
+
+```
+GMAIL_USER=adresse.envoi@gmail.com
+GMAIL_APP_PASSWORD=abcdefghijklmnop
+EMAIL_TO=destinataire@gmail.com
+```
+
+### Blynk
+
+Voir [docs/BLYNK.md](docs/BLYNK.md) : datastreams V0 à V12, événements `incendie`, `conservation`,
+`maladie`, widgets conseillés.
+
+## Lancement
 
 ```bash
-# Tests automatiques (10 tests)
+source .venv/bin/activate
+
+# Tests automatiques (sans matériel)
 python -m pytest tests/
 
-# Oiseaux sur toutes les photos de test (images annotées dans output/)
-python scripts/test_models.py --dir test_images/birds --model bird
+# Simulation sans capteurs (fonctionne aussi sur PC) : normal | chaleur | incendie
+python main.py --simulation incendie --duree 90
+python main.py --simulation chaleur --duree 180
 
-# Voir toutes les classes COCO détectées (pour vérifier que le modèle « voit » bien)
-python scripts/test_models.py --image test_images/birds/dog.jpg --model bird --all-classes
+# Avec le vrai matériel
+python main.py                      # champ + entrepôt
+python main.py --station entrepot   # une seule station
 
-# Maladie sur une feuille
-python scripts/test_models.py --image test_images/tomato/tomato_late_blight/tomato_late_blight_01.jpg --model disease
-
-# Précision sur les 100 feuilles de test
-python scripts/evaluate_disease.py
-
-# Vitesse sur le Pi
-python scripts/benchmark.py
-
-# Caméra (webcam USB, nécessite OpenCV), une analyse par seconde
-python scripts/test_models.py --camera
+# Démarrage automatique au boot
+sudo cp deploy/smecofarm.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now smecofarm
+journalctl -u smecofarm -f          # voir les messages
 ```
 
-Dans votre propre code :
+En simulation, si `.env` est rempli, Blynk et l'e-mail fonctionnent vraiment : pratique pour
+tester le dashboard et la réception de l'e-mail avant de câbler les capteurs.
 
-```python
-from smecofarm import BirdDetector, DiseaseClassifier
+Les données sont enregistrées dans `data/` : un fichier CSV par jour (une ligne par minute,
+s'ouvre dans Excel), les photos d'événements dans `data/photos/` et le journal `smecofarm.log`.
 
-birds = BirdDetector(score_threshold=0.5)
-for d in birds.detect("photo.jpg"):          # chemin, image PIL ou tableau numpy RGB
-    print(d.label, d.score, d.box)           # box = (x_min, y_min, x_max, y_max) en pixels
+## Démonstration sans danger
 
-disease = DiseaseClassifier(crop="tomato", confidence_threshold=0.6)
-p = disease.predict("feuille.jpg")
-print(p.name, p.confidence, p.uncertain, p.healthy)
-# ex. "Tomate - mildiou" 0.95 False False
-```
+| Test | Comment |
+|---|---|
+| Oiseau | Photo réaliste d'oiseau (imprimée ou sur téléphone) devant la webcam du champ |
+| Maladie | Image de `test_images/tomato/` devant la webcam (gros plan, bien éclairée) |
+| Chaleur | Souffler de l'air chaud (sèche-cheveux à distance) sur le DHT11 → ventilateur |
+| Air anormal | Allumette qu'on vient d'éteindre près du MQ-135 → ventilateur |
+| Incendie | **Vidéo de flammes** sur un téléphone devant la webcam de l'entrepôt **+** fumée d'allumette sur le MQ-135 → alerte, e-mail, sirène |
 
-⚠️ OpenCV fournit les images en **BGR** : convertir avec `cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)` avant d'appeler les modèles.
+⚠️ Ne pas faire de vrai feu près du montage.
 
-## Les modèles
+## Les modèles d'IA
 
 ### Oiseaux : EfficientDet-Lite0
-
-- Source : exemple officiel TensorFlow Lite pour Raspberry Pi (Google),
-  `lite-model_efficientdet_lite0_detection_metadata_1.tflite`.
-- Entraîné sur COCO (90 classes, dont `bird`) ; quantifié int8.
-- Entrée : image RGB 320×320, pixels 0–255 (uint8). Sortie : jusqu'à 25 détections
-  (boîte, classe, score), post-traitement inclus dans le modèle.
-- On ne garde que la classe `bird`, avec un seuil de **0,5**.
+- Exemple officiel TensorFlow Lite pour Raspberry Pi (Google), entraîné sur COCO (90 classes dont `bird`), quantifié int8, 4,6 Mo.
+- Entrée 320×320 RGB. On garde la classe `bird` avec un seuil de 0,5.
+- Test : l'aigle est détecté à 84 %, aucune fausse détection sur 6 photos sans oiseau.
 
 ### Maladies : MobileNetV2 + PlantVillage
+- Projet [obeshor/Plant-Diseases-Detector](https://github.com/obeshor/Plant-Diseases-Detector) (licence Apache 2.0), 38 classes, 11,6 Mo.
+- Entrée 224×224 RGB, pixels / 255. Restreint aux **10 classes de la tomate**, probabilités renormalisées ;
+  sous 60 % de confiance, le résultat est « incertain ».
+- Test : **87/100** feuilles de tomate PlantVillage bien classées (`python scripts/evaluate_disease.py`).
+  Chiffre optimiste : images de laboratoire, probablement vues à l'entraînement. Sur de vraies photos de jardin,
+  la précision sera plus faible. Le chou et le persil ne sont pas couverts (il faudrait un entraînement).
 
-- Source : projet [obeshor/Plant-Diseases-Detector](https://github.com/obeshor/Plant-Diseases-Detector)
-  (Yannick Serge Obam, licence Apache 2.0), fichier `plant_disease_model.tflite`.
-- MobileNetV2 (pré-entraîné ImageNet) + couches finales entraînées sur PlantVillage par l'auteur ;
-  précision de validation annoncée dans son notebook : environ 94 %.
-- Entrée : image RGB 224×224, pixels divisés par 255 (float32). Sortie : 38 probabilités.
-- **Restriction à la tomate** : on garde les 10 classes de la tomate et on renormalise les
-  probabilités. Le modèle ne peut donc plus répondre « pomme » ou « raisin » sur une feuille de tomate.
-- En dessous de **60 %** de confiance, le résultat est marqué « incertain ».
-- Le chou et le persil **ne sont pas dans PlantVillage** : il faudrait un entraînement
-  pour les ajouter (amélioration future).
+### Flammes : règle de couleur (sans IA)
+- Pixels rouge-orangé lumineux et saturés (R > 180, R ≥ G > B), zone qui **scintille** d'une image à l'autre,
+  confirmée sur 3 images de suite. Un objet orange immobile n'est pas pris pour une flamme.
+- Des reflets ou une lampe orange qui bouge peuvent tromper la caméra : c'est pourquoi l'alerte demande **2 indices**.
 
-## Résultats (sur PC, images de test du dépôt)
+### Tester les modèles seuls
 
-**Oiseaux** : l'aigle est détecté (84 %). Aucune fausse détection « bird » sur les
-6 photos sans oiseau (chien, chevaux, personne, girafe, cerf-volant, tableau).
+```bash
+python scripts/test_models.py --dir test_images/birds --model bird
+python scripts/test_models.py --image test_images/tomato/tomato_late_blight/tomato_late_blight_01.jpg --model disease
+python scripts/test_models.py --camera --camera-index 0
+python scripts/evaluate_disease.py
+python scripts/benchmark.py        # vitesse sur le Pi
+```
 
-**Maladies** : `python scripts/evaluate_disease.py`
+## Améliorations futures
 
-| Classe | Correct |
-|---|---|
-| Tache bactérienne | 10/10 |
-| Alternariose (early blight) | 9/10 |
-| Saine | 7/10 |
-| Mildiou (late blight) | 9/10 |
-| Moisissure des feuilles | 10/10 |
-| Septoriose | 9/10 |
-| Acariens | 8/10 |
-| Tache cible | 5/10 |
-| Virus de la mosaïque | 10/10 |
-| Virus de l'enroulement jaune | 10/10 |
-| **Total** | **87/100** |
-
-**Limites à indiquer dans le rapport :**
-- Ce chiffre est **optimiste** : les images PlantVillage ont été prises en laboratoire
-  (feuille seule, fond uni), et une partie a probablement servi à entraîner le modèle.
-  Sur des photos prises au jardin, la précision sera nettement plus faible.
-- 10 images par classe, c'est peu : le résultat varie de quelques points selon les images choisies.
-- Le détecteur d'oiseaux repère mal les oiseaux très petits ou lointains dans l'image.
-
-**Vitesse** : sur PC, environ 17 ms (oiseaux) et 4 ms (maladies) par image.
-À mesurer sur le Pi 4 avec `scripts/benchmark.py` ; on peut s'attendre à
-environ 10 fois plus, ce qui reste suffisant (1 à 2 analyses par seconde suffisent).
-
-## Conseils pour la démo
-
-- **Oiseaux** : montrer à la caméra une **photo réaliste** d'oiseau (imprimée ou sur un
-  téléphone, luminosité au maximum), oiseau entier, occupant au moins 10–20 % de l'image.
-  Montrer aussi une image sans oiseau pour prouver qu'il n'y a pas de fausse alerte.
-- **Maladies** : montrer une feuille en **gros plan**, bien éclairée, sur fond uni.
-  Les images de `test_images/tomato/` (imprimées ou sur écran) fonctionnent bien.
+- **DHT22** (5 €) à la place du DHT11 : mesure jusqu'à 100 % d'humidité → activer la règle « humidité > 95 % ».
+- **ADS1115** pour lire la valeur analogique du MQ-135 (vraie courbe, détection de montée rapide).
+- **2ᵉ capteur de température à l'extérieur** : ne ventiler que si l'air extérieur est plus frais.
+- **Capteur de flamme infrarouge** (2 €) : 4ᵉ indice incendie, très fiable de près.
+- Modèle d'IA dédié feu/fumée, entraînement sur le chou et le persil.
 
 ## Provenance des images de test
 
 - `test_images/birds/` : images d'exemple du projet Darknet/YOLO (pjreddie/darknet, dossier `data/`).
-- `test_images/tomato/` : échantillon du jeu PlantVillage (spMohanty/PlantVillage-Dataset,
-  `raw/color`), 10 images par classe tirées au hasard. Voir les dépôts d'origine pour leurs licences.
+- `test_images/tomato/` : échantillon du jeu PlantVillage (spMohanty/PlantVillage-Dataset, `raw/color`),
+  10 images par classe tirées au hasard. Voir les dépôts d'origine pour leurs licences.

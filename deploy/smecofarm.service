@@ -1,0 +1,20 @@
+# Démarrage automatique de SmEcoFarm au boot du Raspberry Pi.
+# Installation (voir README) :
+#   sudo cp deploy/smecofarm.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now smecofarm
+# Adapter User et les chemins si votre utilisateur n'est pas « pi ».
+
+[Unit]
+Description=SmEcoFarm - surveillance champ et entrepôt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/SmEcoFarm
+ExecStart=/home/pi/SmEcoFarm/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
