@@ -1,17 +1,20 @@
-# Moteur d'inférence TFLite (Raspberry Pi OS 64 bits et PC)
-ai-edge-litert
-numpy
+# Dépendances Python. Sur le Raspberry Pi, utiliser plutôt : bash install.sh
+# (le script installe aussi le moteur d'IA adapté : ai-edge-litert en 64 bits,
+#  tflite-runtime sinon).
+
+# Sur le Pi, numpy < 2 : OpenCV installé par apt est compilé pour numpy 1.x
+numpy<2 ; platform_machine == "aarch64" or platform_machine == "armv7l"
+numpy ; platform_machine != "aarch64" and platform_machine != "armv7l"
 pillow
 pyyaml
 
 # Raspberry Pi uniquement : capteur DHT11
-# (gpiozero et lgpio sont déjà installés sur Raspberry Pi OS ; le venv les voit
-#  grâce à l'option --system-site-packages)
-adafruit-circuitpython-dht ; platform_machine == "aarch64"
+# (gpiozero et lgpio / RPi.GPIO sont fournis par Raspberry Pi OS ; le venv les
+#  voit grâce à l'option --system-site-packages)
+adafruit-circuitpython-dht ; platform_machine == "aarch64" or platform_machine == "armv7l"
 
 # Tests
 pytest
 
-# Webcams : installer OpenCV avec apt sur le Pi (plus rapide que pip) :
-#   sudo apt install python3-opencv
-# Sur PC : pip install opencv-python
+# Sur PC uniquement, à installer à la main :
+#   pip install ai-edge-litert opencv-python

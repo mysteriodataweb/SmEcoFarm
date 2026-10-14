@@ -83,16 +83,20 @@ anormal**, sans valeur précise. C'est suffisant pour le prototype ; l'ADS1115 e
 
 ## Installation sur le Raspberry Pi 4
 
-Raspberry Pi OS **64 bits** (Bookworm). Câbler d'abord selon [docs/CABLAGE.md](docs/CABLAGE.md).
+Câbler d'abord selon [docs/CABLAGE.md](docs/CABLAGE.md). Puis, dans un terminal du Pi :
 
 ```bash
-sudo apt update && sudo apt install -y python3-opencv python3-yaml v4l-utils
-git clone https://github.com/mysteriodataweb/SmEcoFarm.git && cd SmEcoFarm
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env && nano .env      # token Blynk et identifiants Gmail
+git clone https://github.com/mysteriodataweb/SmEcoFarm.git
+cd SmEcoFarm
+bash install.sh
+cp .env.example .env
+nano .env
 ```
+
+`install.sh` détecte le système (32 ou 64 bits), installe les paquets nécessaires, crée l'environnement
+Python `.venv`, choisit le moteur d'IA adapté (`ai-edge-litert` en 64 bits, `tflite-runtime` sinon)
+et lance les tests. Si aucun moteur n'est disponible, il l'indique : il faut alors installer
+**Raspberry Pi OS (64-bit)** avec Raspberry Pi Imager.
 
 Dans `config.yaml`, vérifier les numéros des webcams (`champ.camera`, `entrepot.camera`) :
 `v4l2-ctl --list-devices` les affiche.
