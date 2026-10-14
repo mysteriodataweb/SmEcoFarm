@@ -19,7 +19,7 @@ titre() { printf '\n\033[1m=== %s ===\033[0m\n' "$*"; }
 titre "1. Système détecté"
 BITS=$(python3 -c 'import struct; print(struct.calcsize("P") * 8)')
 PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "Noyau          : $(uname -m)"
+echo "Noyau          : $(uname -m)   (Python voit : $(python3 -c 'import platform; print(platform.machine())'))"
 echo "Python         : $PYVER ($BITS bits)"
 [ -f /etc/os-release ] && echo "Système        : $(. /etc/os-release; echo "$PRETTY_NAME")"
 if [ "$BITS" != "64" ]; then
@@ -32,7 +32,8 @@ if [ "${1:-}" != "--sans-apt" ]; then
     sudo apt-get update
     # Installés un par un : certains n'existent pas sur toutes les versions du système
     for paquet in python3-venv python3-pip python3-opencv python3-yaml python3-lgpio \
-                  python3-gpiozero libgpiod2 v4l-utils; do
+                  python3-gpiozero python3-rpi.gpio libgpiod2 libopenblas0 libopenblas-dev \
+                  libatlas-base-dev v4l-utils; do
         if sudo apt-get install -y "$paquet" >/dev/null 2>&1; then
             echo "  ok      $paquet"
         else
@@ -50,6 +51,11 @@ fi
 source .venv/bin/activate
 python -m pip install --upgrade pip >/dev/null
 pip install -r requirements.txt || { rouge "Échec de l'installation des dépendances (voir le message ci-dessus)"; exit 1; }
+# Sur Raspberry Pi : numpy 1.x obligatoire (OpenCV et le moteur TFLite sont compilés pour numpy 1.x)
+case "$(python -c 'import platform; print(platform.machine())')" in
+    x86_64|AMD64) ;;
+    *) pip install "numpy<2" ;;
+esac
 
 titre "4. Moteur d'IA TFLite"
 if python -c "import ai_edge_litert" 2>/dev/null || python -c "import tflite_runtime" 2>/dev/null; then
@@ -65,7 +71,37 @@ else
     exit 1
 fi
 
-titre "5. Tests"
+# Le moteur d'IA ne doit pas avoir remis numpy 2 : on revérifie
+case "$(python -c 'import platform; print(platform.machine())')" in
+    x86_64|AMD64) ;;
+    *) pip install -q "numpy<2" ;;
+esac
+
+titre "5. Vérification des modules"
+python - <<'PYEOF'
+import importlib
+modules = [("numpy", "calculs"), ("PIL", "images"), ("yaml", "configuration"),
+           ("cv2", "webcams (sudo apt install python3-opencv)"),
+           ("gpiozero", "GPIO : ventilateur, buzzer, MQ-135"),
+           ("adafruit_dht", "capteur DHT11")]
+for name, role in modules:
+    try:
+        module = importlib.import_module(name)
+        print(f"  ok      {name:14s} {getattr(module, '__version__', '')}")
+    except Exception as exc:
+        print(f"  ÉCHEC   {name:14s} {role} : {exc}")
+for name in ("ai_edge_litert", "tflite_runtime"):
+    try:
+        importlib.import_module(name)
+        print(f"  ok      {name:14s} moteur d'IA")
+        break
+    except Exception as exc:
+        last = exc
+else:
+    print(f"  ÉCHEC   moteur d'IA : {last}")
+PYEOF
+
+titre "6. Tests"
 if python -m pytest -q tests/; then
     vert "Installation terminée."
     echo

@@ -3,15 +3,15 @@
 #  tflite-runtime sinon).
 
 # Sur le Pi, numpy < 2 : OpenCV installé par apt est compilé pour numpy 1.x
-numpy<2 ; platform_machine == "aarch64" or platform_machine == "armv7l"
-numpy ; platform_machine != "aarch64" and platform_machine != "armv7l"
+numpy<2 ; platform_machine == "aarch64" or "arm" in platform_machine
+numpy ; platform_machine != "aarch64" and "arm" not in platform_machine
 pillow
 pyyaml
 
 # Raspberry Pi uniquement : capteur DHT11
 # (gpiozero et lgpio / RPi.GPIO sont fournis par Raspberry Pi OS ; le venv les
 #  voit grâce à l'option --system-site-packages)
-adafruit-circuitpython-dht ; platform_machine == "aarch64" or platform_machine == "armv7l"
+adafruit-circuitpython-dht ; platform_machine == "aarch64" or "arm" in platform_machine
 
 # Tests
 pytest
