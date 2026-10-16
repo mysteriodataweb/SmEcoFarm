@@ -40,6 +40,14 @@ if [ "${1:-}" != "--sans-apt" ]; then
             echo "  ignoré  $paquet (non disponible sur ce système)"
         fi
     done
+    # numpy (piwheels) a besoin de libopenblas.so.0 : on vérifie qu'elle est bien là
+    if ! ldconfig -p | grep -q "libopenblas.so.0"; then
+        rouge "libopenblas.so.0 introuvable : tentative d'installation avec affichage des erreurs"
+        sudo apt-get install -y libopenblas0 || sudo apt-get install -y libopenblas-base
+        if ! ldconfig -p | grep -q "libopenblas.so.0"; then
+            rouge "libopenblas.so.0 toujours absente : copiez les messages ci-dessus pour le diagnostic."
+        fi
+    fi
 fi
 
 titre "3. Environnement Python .venv"
