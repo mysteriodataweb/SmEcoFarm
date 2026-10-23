@@ -94,13 +94,13 @@ class SyntheticFireCamera:
         h, w = self._height, self._width
         frame = np.full((h, w, 3), 90, dtype=np.uint8)
         frame[int(h * 0.6):, :] = (70, 60, 50)  # sol
-        frame[int(h * 0.45):int(h * 0.6), int(w * 0.1):int(w * 0.4)] = (150, 40, 30)  # caisse de tomates
+        frame[int(h * 0.45):int(h * 0.6), int(w * 0.1):int(w * 0.4)] = (200, 35, 30)  # caisse de tomates mûres (rouge vif, comme une flamme)
         if self._fire_active():
             # Flamme : ellipse jaune-orange dont la taille et la position varient
             cx = w * 0.7 + self._rng.uniform(-4, 4)
             cy = h * 0.6
-            rx = w * 0.06 * self._rng.uniform(0.7, 1.3)
-            ry = h * 0.18 * self._rng.uniform(0.6, 1.4)
+            rx = w * 0.08 * self._rng.uniform(0.7, 1.3)
+            ry = h * 0.22 * self._rng.uniform(0.6, 1.4)
             yy, xx = np.mgrid[0:h, 0:w]
             inside = ((xx - cx) / rx) ** 2 + ((yy - (cy - ry)) / ry) ** 2 <= 1
             frame[inside] = (255, int(self._rng.uniform(140, 210)), 40)

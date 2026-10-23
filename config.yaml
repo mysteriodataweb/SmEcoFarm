@@ -1,4 +1,4 @@
-# Configuration SmEcoFarm - un seul Raspberry Pi 4 pour le champ et l'entrepôt.
+# Configuration SmEcoFarm - un seul Raspberry Pi 4 pour le champ, l'entrepôt et l'accès.
 # Les secrets (token Blynk, mot de passe Gmail) vont dans le fichier .env.
 
 champ:
@@ -35,38 +35,62 @@ entrepot:
     temp_max_c: 45                 # ou température supérieure à 45 °C
 
   camera_feu:
-    proportion_min: 0.005          # part minimale de l'image couverte par la flamme
+    methode: hsv                   # hsv = plages de couleurs du code d'origine ; rgb = autre règle
+    proportion_min: 0.02           # 2 % de l'image de couleur flamme (seuil du code d'origine)
     images_consecutives: 3         # images de suite pour confirmer
-    exiger_scintillement: true     # une flamme bouge ; un objet orange fixe non
-    scintillement_min: 0.15
+    exiger_scintillement: true     # une flamme bouge ; des tomates rouges immobiles non
+    scintillement_min: 0.003       # part de l'image qui doit changer d'une image à l'autre
 
-materiel:                          # numéros GPIO (BCM), voir docs/CABLAGE.md
-  dht11_gpio: 4                    # broche physique 7
-  mq135_do_gpio: 17                # broche physique 11 (via pont diviseur !)
+acces:                             # contrôle d'accès de l'entrepôt (badge RFID + porte)
+  actif: true
+  cartes_autorisees:               # numéro de carte : nom (scripts/lire_badge.py affiche le numéro)
+    1046817149299: Carte principale
+  duree_ouverture_s: 4             # durée d'ouverture de la porte
+  angle_ferme: 0
+  angle_ouvert: 90
+  anti_rebond_s: 3                 # une même carte n'est traitée qu'une fois pendant ce délai
+  duree_alarme_refus_s: 2          # buzzer quand une carte est refusée
+  ouvrir_si_incendie: true         # porte ouverte pour l'évacuation pendant l'alerte incendie
+
+led:
+  seuil_temperature: 30            # LED allumée au-dessus (ou quand la porte est ouverte)
+
+materiel:                          # numéros GPIO (BCM) du câblage actuel, voir docs/CABLAGE.md
+  dht11_gpio: 17                   # broche physique 11
+  mq135_do_gpio: 16                # broche physique 36 (via pont diviseur !)
   mq135_actif_bas: true            # DO = 0 quand du gaz est détecté (LED DO allumée)
   mq135_prechauffage_s: 180
   relais_ventilateur_gpio: 27      # broche physique 13
   relais_actif_bas: true           # la plupart des modules relais
-  buzzer_gpio: 22                  # broche physique 15
+  buzzer_gpio: 23                  # broche physique 16
+  led_gpio: 22                     # broche physique 15
+  servo_porte_gpio: 26             # broche physique 37
+  # Lecteur RFID RC522 : bus SPI (GPIO 8, 9, 10, 11), voir docs/CABLAGE.md
 
 blynk:
   actif: true                      # nécessite BLYNK_TOKEN dans .env
   serveur: blynk.cloud             # ou le serveur de votre région (ex. fra1.blynk.cloud)
   intervalle_s: 5
   pins:                            # pins virtuelles des datastreams (null = non utilisée)
-    oiseau_present: V0             # 0/1
-    oiseaux_compteur: V1           # entier
-    maladie: V2                    # texte
-    maladie_confiance: V3          # %
-    buzzer_oiseaux_actif: V4       # interrupteur (commande) : 1 = buzzer autorisé
-    temperature: V5                # °C
-    humidite: V6                   # %
-    air_anormal: V7                # 0/1
-    ventilateur: V8                # 0/1
-    mode_ventilateur: V9           # commande : 0 = auto, 1 = marche forcée, 2 = arrêt forcé
-    niveau_incendie: V10           # 0 normal, 1 vigilance, 2 alerte
-    rearmement: V11                # bouton (commande) : réarmer l'alerte incendie
-    message: V12                   # texte d'état
+    # --- pins du dashboard d'origine (inchangées) ---
+    led: V0                        # 0/1
+    temperature: V3                # °C
+    humidite: V4                   # %
+    air_anormal: V5                # 0/1 (MQ-135)
+    derniere_carte: V6             # texte : numéro de la dernière carte
+    message: V7                    # texte d'état
+    # --- nouvelles pins ---
+    porte_ouverte: V1              # 0/1
+    ouvrir_porte: V2               # bouton (commande) : ouvrir la porte à distance
+    oiseau_present: V8             # 0/1
+    oiseaux_compteur: V9           # entier
+    maladie: V10                   # texte
+    maladie_confiance: V11         # %
+    buzzer_oiseaux_actif: V12      # interrupteur (commande) : 1 = buzzer autorisé
+    ventilateur: V13               # 0/1
+    mode_ventilateur: V14          # commande : 0 = auto, 1 = marche forcée, 2 = arrêt forcé
+    niveau_incendie: V15           # 0 normal, 1 vigilance, 2 alerte
+    rearmement: V16                # bouton (commande) : réarmer l'alerte incendie
 
 email:
   actif: true                      # nécessite GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_TO dans .env

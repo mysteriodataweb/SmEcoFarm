@@ -32,6 +32,17 @@ class DataLogger:
                 writer.writeheader()
             writer.writerow({"date_heure": datetime.now().isoformat(timespec="seconds"), **row})
 
+    def log_access(self, card, authorized, name=""):
+        """Journal des accès : un fichier acces_AAAA-MM-JJ.csv par jour."""
+        path = self.folder / f"acces_{datetime.now():%Y-%m-%d}.csv"
+        new_file = not path.exists()
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            if new_file:
+                writer.writerow(["date_heure", "carte", "resultat", "nom"])
+            writer.writerow([datetime.now().isoformat(timespec="seconds"), card,
+                             "autorisé" if authorized else "refusé", name])
+
     def save_photo(self, image, label):
         """Enregistre une image RGB numpy et retourne son chemin."""
         path = self.photos / f"{time.strftime('%Y%m%d_%H%M%S')}_{label}.jpg"

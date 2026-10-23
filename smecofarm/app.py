@@ -6,15 +6,20 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from .actionneurs import Buzzer, Fan
+from .actionneurs import Buzzer, Door, Fan, Led
 from .services.blynk import BlynkClient, NullBlynk
 from .services.config import PROJECT_ROOT, secret
 from .services.email_alert import GmailNotifier, NullNotifier
+from .regles import ALERTE
 from .services.journal import DataLogger
 
 log = logging.getLogger("smecofarm")
 
-CONTROL_PINS = ("buzzer_oiseaux_actif", "mode_ventilateur", "rearmement")
+CONTROL_PINS = ("buzzer_oiseaux_actif", "mode_ventilateur", "rearmement", "ouvrir_porte")
+ALL_STATIONS = ("champ", "entrepot", "acces")
+
+# Carte inconnue présentée en simulation (à 20 s), après une carte autorisée (à 10 s)
+SIMULATED_UNKNOWN_CARD = 123456789
 
 
 def setup_logging(folder, verbose=False):
@@ -32,10 +37,10 @@ def setup_logging(folder, verbose=False):
 
 
 class App:
-    def __init__(self, config, stations=("champ", "entrepot"), simulation=None, clock=time.monotonic,
+    def __init__(self, config, stations=ALL_STATIONS, simulation=None, clock=time.monotonic,
                  blynk=None, notifier=None):
         """
-        stations   : stations à lancer ("champ", "entrepot").
+        stations   : stations à lancer ("champ", "entrepot", "acces").
         simulation : None (matériel réel) ou nom de scénario ("normal", "chaleur", "incendie").
         blynk, notifier : à fournir pour les tests ; sinon créés selon config et .env.
         """
@@ -53,20 +58,28 @@ class App:
         self.blynk = blynk or self._make_blynk(blynk_cfg)
         self.notifier = notifier or self._make_notifier(config.get("email", {}))
         simulated = simulation is not None
-        self.buzzer = Buzzer(hw.get("buzzer_gpio", 22), simulated=simulated)
-        self._closables = [self.buzzer]
+        self.buzzer = Buzzer(hw.get("buzzer_gpio", 23), simulated=simulated, clock=clock)
+        self.led = Led(hw.get("led_gpio", 22), simulated=simulated)
+        self.led_threshold = config.get("led", {}).get("seuil_temperature", 30)
+        self._closables = [self.buzzer, self.led]
 
         self.scenario = None
         if simulated:
             from .capteurs.simulation import Scenario
             self.scenario = Scenario(simulation, clock)
 
-        self.field = self.warehouse = None
+        self.field = self.warehouse = self.access = None
+        access_cfg = config.get("acces", {})
+        access_on = "acces" in stations and access_cfg.get("actif", True)
         if "champ" in stations and config.get("champ", {}).get("actif", True):
             self.field = self._make_field(config.get("champ", {}))
         if "entrepot" in stations and config.get("entrepot", {}).get("actif", True):
-            self.warehouse = self._make_warehouse(config.get("entrepot", {}), hw)
-        if not (self.field or self.warehouse):
+            warehouse_cfg = {**config.get("entrepot", {}),
+                             "porte_evacuation": access_on and access_cfg.get("ouvrir_si_incendie", True)}
+            self.warehouse = self._make_warehouse(warehouse_cfg, hw)
+        if access_on:
+            self.access = self._make_access(access_cfg, hw)
+        if not (self.field or self.warehouse or self.access):
             raise ValueError("Aucune station active (voir config.yaml)")
         self._next_journal = 0.0
 
@@ -123,18 +136,52 @@ class App:
         return WarehouseStation(cfg, climate, gas, camera, fan, self.buzzer, self.blynk,
                                 self.notifier, self.logger, self.pins)
 
+    def _make_access(self, cfg, hw):
+        from .stations import AccessStation
+        simulated = self.simulation is not None
+        if simulated:
+            from .capteurs.rfid import SimulatedRfid
+            cards = [int(uid) for uid in (cfg.get("cartes_autorisees") or {})]
+            events = ([(10, cards[0])] if cards else []) + [(20, SIMULATED_UNKNOWN_CARD)]
+            reader = SimulatedRfid(events, self.clock)
+        else:
+            from .capteurs.rfid import RfidReader
+            reader = RfidReader(cfg.get("anti_rebond_s", 3))
+        door = Door(hw.get("servo_porte_gpio", 26), cfg.get("angle_ferme", 0), cfg.get("angle_ouvert", 90),
+                    simulated=simulated)
+        self._closables += [reader, door]
+        return AccessStation(cfg, reader, door, self.buzzer, self.blynk, self.logger, self.pins)
+
     # --- fonctionnement --------------------------------------------------
+    def _fire_alarm(self):
+        return bool(self.warehouse and self.warehouse.fire and self.warehouse.fire.level == ALERTE)
+
     def state(self):
         values = {}
         if self.field:
             values.update(self.field.state())
         if self.warehouse:
             values.update(self.warehouse.state())
+        if self.access:
+            values.update(self.access.state())
+            # Message d'état (V7) : incendie > dernier événement de badge > état de l'entrepôt
+            if self.access.message and not self._fire_alarm():
+                values["message"] = self.access.message
+            values.setdefault("message", "Système normal")
+        values["led"] = int(self.led.is_on)
         return values
+
+    def _update_led(self):
+        """LED comme dans le code d'origine : température haute ou porte ouverte."""
+        hot = False
+        if self.warehouse and self.warehouse.climate and self.warehouse.climate.ok:
+            hot = self.warehouse.climate.temperature > self.led_threshold
+        door_open = bool(self.access and self.access.door.is_open)
+        self.led.set(hot or door_open)
 
     def tick(self):
         now = self.clock()
-        for station in (self.field, self.warehouse):
+        for station in (self.field, self.warehouse, self.access):
             if station is None:
                 continue
             try:
@@ -142,6 +189,10 @@ class App:
             except Exception:
                 # Une erreur ponctuelle (caméra, capteur) ne doit pas arrêter la surveillance
                 log.exception("Erreur dans la station %s", type(station).__name__)
+
+        if self.access and self.warehouse and self.warehouse.cfg.get("porte_evacuation"):
+            self.access.set_evacuation(now, self._fire_alarm())
+        self._update_led()
 
         values = self.state()
         self.blynk.publish({self.pins[name]: value for name, value in values.items() if name in self.pins})
@@ -163,7 +214,8 @@ class App:
     def run(self, duration_s=None, period_s=0.1):
         start = self.clock()
         log.info("SmEcoFarm démarré (stations : %s%s)",
-                 ", ".join(n for n, s in (("champ", self.field), ("entrepôt", self.warehouse)) if s),
+                 ", ".join(n for n, s in (("champ", self.field), ("entrepôt", self.warehouse),
+                                          ("accès", self.access)) if s),
                  f", simulation « {self.simulation} »" if self.simulation else "")
         while duration_s is None or self.clock() - start < duration_s:
             self.tick()

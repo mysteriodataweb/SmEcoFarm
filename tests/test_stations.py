@@ -97,21 +97,21 @@ def test_fire_scenario(tmp_path):
     subject, body, image = notifier.sent[0]
     assert "INCENDIE" in subject and image is not None
     assert "incendie" in blynk.events
-    assert blynk.values["V10"] == ALERTE
+    assert blynk.values["V15"] == ALERTE
     assert list((tmp_path / "photos").glob("*incendie.jpg"))
 
     # Réarmement depuis Blynk : l'alerte retombe, mais le feu continue -> nouvelle alerte
-    blynk.controls["V11"] = "1"
+    blynk.controls["V16"] = "1"
     run(app, clock, 1)
-    assert blynk.controls["V11"] == "0"
+    assert blynk.controls["V16"] == "0"
 
 
 def test_fan_manual_mode(tmp_path):
-    blynk = FakeBlynk({"V9": "1"})  # marche forcée
+    blynk = FakeBlynk({"V14": "1"})  # marche forcée
     app, clock, _ = make_app("normal", blynk=blynk, tmp_path=tmp_path)
     run(app, clock, 5)
     assert app.warehouse.fan.is_on
-    blynk.controls["V9"] = "2"      # arrêt forcé
+    blynk.controls["V14"] = "2"      # arrêt forcé
     run(app, clock, 1)
     assert not app.warehouse.fan.is_on
 
@@ -125,7 +125,7 @@ def test_field_station_detects_bird(tmp_path):
 
 
 def test_bird_buzzer_can_be_disabled(tmp_path):
-    blynk = FakeBlynk({"V4": "0"})
+    blynk = FakeBlynk({"V12": "0"})
     app, clock, _ = make_app("normal", stations=("champ",), blynk=blynk, tmp_path=tmp_path)
     calls = []
     app.buzzer.bird_alert = lambda: calls.append(1)
@@ -144,7 +144,70 @@ def test_fire_detector_needs_flicker():
     detector = FireDetector(consecutive_frames=3)
     assert not any(detector.analyse(still).confirmed for _ in range(5))
 
-    # Une pièce sans flamme
+    # Une pièce sans flamme mais avec une caisse de tomates rouges (même couleur qu'une flamme)
     detector = FireDetector()
-    empty = SyntheticFireCamera(lambda: False).read()
-    assert detector.analyse(np.array(empty)).ratio == 0
+    room = SyntheticFireCamera(lambda: False)
+    results = [detector.analyse(np.array(room.read())) for _ in range(5)]
+    assert results[-1].ratio >= 0.02          # les tomates ont bien une « couleur de flamme »...
+    assert not any(r.flame for r in results)  # ... mais ne bougent pas : pas de flamme
+
+
+# --- contrôle d'accès -----------------------------------------------------
+
+AUTHORIZED = 1046817149299
+
+
+def test_authorized_card_opens_door(tmp_path):
+    blynk = FakeBlynk()
+    app, clock, _ = make_app("normal", stations=("acces",), blynk=blynk, tmp_path=tmp_path)
+    run(app, clock, 9)
+    assert not app.access.door.is_open
+    run(app, clock, 2)                       # carte autorisée présentée à 10 s
+    assert app.access.door.is_open and app.led.is_on
+    assert blynk.values["V6"] == str(AUTHORIZED) and blynk.values["V1"] == 1
+    assert blynk.values["V7"].startswith("Accès autorisé")
+    run(app, clock, 4)                       # fermeture après 4 s
+    assert not app.access.door.is_open and not app.led.is_on
+    log = next(tmp_path.glob("acces_*.csv")).read_text(encoding="utf-8")
+    assert f"{AUTHORIZED};autorisé" in log
+
+
+def test_unknown_card_is_refused(tmp_path):
+    blynk = FakeBlynk()
+    app, clock, _ = make_app("normal", stations=("acces",), blynk=blynk, tmp_path=tmp_path)
+    calls = []
+    original = app.buzzer.refused_alert
+    app.buzzer.refused_alert = lambda d: (calls.append(d), original(d))
+    run(app, clock, 22)                      # carte inconnue présentée à 20 s
+    assert calls == [2]
+    assert not app.access.door.is_open
+    assert "acces_refuse" in blynk.events
+    assert blynk.values["V7"] == "Carte non reconnue"
+    assert "refusé" in next(tmp_path.glob("acces_*.csv")).read_text(encoding="utf-8")
+
+
+def test_remote_open_from_blynk(tmp_path):
+    blynk = FakeBlynk()
+    app, clock, _ = make_app("normal", stations=("acces",), blynk=blynk, tmp_path=tmp_path)
+    blynk.controls["V2"] = "1"
+    run(app, clock, 1)
+    assert app.access.door.is_open and blynk.controls["V2"] == "0"
+
+
+def test_fire_opens_door_for_evacuation(tmp_path):
+    blynk = FakeBlynk()
+    app, clock, notifier = make_app("incendie", stations=("entrepot", "acces"), blynk=blynk, tmp_path=tmp_path)
+    run(app, clock, 65)
+    assert app.warehouse.fire.level == ALERTE
+    assert app.access.door.is_open and app.access.evacuation
+    assert "évacuation" in notifier.sent[0][1]
+    run(app, clock, 30)                      # la porte reste ouverte pendant l'alerte
+    assert app.access.door.is_open
+
+
+def test_led_on_when_hot(tmp_path):
+    app, clock, _ = make_app("chaleur", tmp_path=tmp_path)
+    run(app, clock, 30)
+    assert not app.led.is_on
+    run(app, clock, 120)                     # 32 °C > 30 °C
+    assert app.led.is_on

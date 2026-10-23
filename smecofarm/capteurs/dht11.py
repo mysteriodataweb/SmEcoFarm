@@ -21,19 +21,40 @@ class ClimateReading:
 
 
 class Dht11Sensor:
-    def __init__(self, gpio=4, max_age_s=60):
-        """gpio : numéro BCM de la broche DATA (GPIO4 = broche physique 7)."""
-        import adafruit_dht  # pip install adafruit-circuitpython-dht
-        import board
-        self._device = adafruit_dht.DHT11(getattr(board, f"D{gpio}"), use_pulseio=False)
+    """Lit le DHT11 avec la bibliothèque disponible :
+
+      - Adafruit_DHT (ancienne bibliothèque, celle du code d'origine) ;
+      - adafruit_dht (bibliothèque CircuitPython, plus récente).
+    """
+
+    def __init__(self, gpio=17, max_age_s=60):
+        """gpio : numéro BCM de la broche DATA (GPIO17 = broche physique 11)."""
         self.max_age_s = max_age_s
         self._last = ClimateReading()
         self._last_ok_time = None
+        self._legacy = None
+        self._device = None
+        try:
+            import Adafruit_DHT
+            self._legacy = Adafruit_DHT
+            self._gpio = gpio
+            log.info("DHT11 : bibliothèque Adafruit_DHT, GPIO%d", gpio)
+        except ImportError:
+            import adafruit_dht  # pip install adafruit-circuitpython-dht
+            import board
+            self._device = adafruit_dht.DHT11(getattr(board, f"D{gpio}"), use_pulseio=False)
+            log.info("DHT11 : bibliothèque adafruit_dht, GPIO%d", gpio)
+
+    def _read_raw(self):
+        if self._legacy is not None:
+            # read() et non read_retry() : read_retry peut bloquer jusqu'à 30 s
+            humidity, temperature = self._legacy.read(self._legacy.DHT11, self._gpio)
+            return temperature, humidity
+        return self._device.temperature, self._device.humidity
 
     def read(self):
         try:
-            temperature = self._device.temperature
-            humidity = self._device.humidity
+            temperature, humidity = self._read_raw()
             if temperature is not None and humidity is not None:
                 self._last = ClimateReading(float(temperature), float(humidity), True)
                 self._last_ok_time = time.monotonic()
@@ -48,4 +69,5 @@ class Dht11Sensor:
         return self._last
 
     def close(self):
-        self._device.exit()
+        if self._device is not None:
+            self._device.exit()

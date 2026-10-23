@@ -12,6 +12,9 @@ pyyaml
 # (gpiozero et lgpio / RPi.GPIO sont fournis par Raspberry Pi OS ; le venv les
 #  voit grâce à l'option --system-site-packages)
 adafruit-circuitpython-dht ; platform_machine == "aarch64" or "arm" in platform_machine
+# Lecteur de badges RFID RC522 (bus SPI)
+mfrc522 ; platform_machine == "aarch64" or "arm" in platform_machine
+spidev ; platform_machine == "aarch64" or "arm" in platform_machine
 
 # Tests
 pytest

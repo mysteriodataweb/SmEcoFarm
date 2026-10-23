@@ -40,6 +40,11 @@ if [ "${1:-}" != "--sans-apt" ]; then
             echo "  ignoré  $paquet (non disponible sur ce système)"
         fi
     done
+    # Lecteur RFID : le bus SPI doit être activé
+    if [ ! -e /dev/spidev0.0 ] && command -v raspi-config >/dev/null; then
+        echo "  Activation du bus SPI (lecteur RFID)..."
+        sudo raspi-config nonint do_spi 0 && echo "  ok      SPI activé (redémarrez le Pi si le lecteur ne répond pas)"
+    fi
     # numpy (piwheels) a besoin de libopenblas.so.0 : on vérifie qu'elle est bien là
     if ! ldconfig -p | grep -q "libopenblas.so.0"; then
         rouge "libopenblas.so.0 introuvable : tentative d'installation avec affichage des erreurs"
@@ -91,13 +96,22 @@ import importlib
 modules = [("numpy", "calculs"), ("PIL", "images"), ("yaml", "configuration"),
            ("cv2", "webcams (sudo apt install python3-opencv)"),
            ("gpiozero", "GPIO : ventilateur, buzzer, MQ-135"),
-           ("adafruit_dht", "capteur DHT11")]
+           ("adafruit_dht", "capteur DHT11"), ("RPi.GPIO", "GPIO : porte (servo), lecteur RFID"),
+           ("mfrc522", "lecteur RFID"), ("spidev", "bus SPI du lecteur RFID")]
 for name, role in modules:
     try:
         module = importlib.import_module(name)
         print(f"  ok      {name:14s} {getattr(module, '__version__', '')}")
     except Exception as exc:
         print(f"  ÉCHEC   {name:14s} {role} : {exc}")
+try:
+    import Adafruit_DHT  # noqa: F401
+    print("  ok      Adafruit_DHT   (ancienne bibliothèque DHT, utilisée en priorité)")
+except Exception:
+    pass
+import os
+print("  ok      bus SPI" if os.path.exists("/dev/spidev0.0")
+      else "  ÉCHEC   bus SPI : sudo raspi-config > Interface Options > SPI, puis redémarrer")
 for name in ("ai_edge_litert", "tflite_runtime"):
     try:
         importlib.import_module(name)

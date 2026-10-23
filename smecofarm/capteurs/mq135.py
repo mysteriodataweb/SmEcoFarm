@@ -16,7 +16,7 @@ import time
 
 
 class Mq135Digital:
-    def __init__(self, gpio=17, active_low=True, preheat_s=180):
+    def __init__(self, gpio=16, active_low=True, preheat_s=180):
         """
         active_low : True si la sortie DO passe à 0 quand du gaz est détecté
                      (cas des modules courants : la LED « DO » s'allume alors).

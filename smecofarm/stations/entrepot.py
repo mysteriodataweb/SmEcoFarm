@@ -34,10 +34,11 @@ class WarehouseStation:
         self.fire_rules = FireRules(cfg.get("incendie"))
         cam = cfg.get("camera_feu") or {}
         self.fire_detector = FireDetector(
-            min_ratio=cam.get("proportion_min", 0.005),
+            method=cam.get("methode", "hsv"),
+            min_ratio=cam.get("proportion_min", 0.02),
             consecutive_frames=cam.get("images_consecutives", 3),
             require_flicker=cam.get("exiger_scintillement", True),
-            min_flicker=cam.get("scintillement_min", 0.15),
+            min_flicker=cam.get("scintillement_min", 0.003),
         )
 
         self._next_sensors = 0.0
@@ -130,11 +131,13 @@ class WarehouseStation:
         if photo is not None:
             self.logger.save_photo(photo, "incendie")
         temp_text = f"{temperature:.0f} °C" if temperature is not None else "inconnue"
+        door_text = "La porte a été ouverte pour l'évacuation.\n" if self.cfg.get("porte_evacuation") else ""
         body = (
             "ALERTE INCENDIE dans l'entrepôt SmEcoFarm.\n\n"
             f"Indices détectés :\n{reasons}\n\n"
             f"Température : {temp_text}\n"
             "Le ventilateur a été coupé et la sirène est activée.\n"
+            f"{door_text}"
             "Photo de la caméra en pièce jointe.\n\n"
             "Réarmez l'alarme depuis l'application Blynk une fois la situation vérifiée."
         )

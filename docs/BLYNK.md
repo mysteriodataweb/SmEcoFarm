@@ -7,23 +7,30 @@ Le Raspberry Pi communique avec Blynk par l'**API HTTP** (aucune bibliothèque �
 Dans [Blynk Console](https://blynk.cloud) : **Developer Zone > My Templates > New Template** (matériel : *Raspberry Pi*, connexion : *WiFi*).
 Puis onglet **Datastreams > New Datastream > Virtual Pin** :
 
+Les pins **V0 et V3 à V7** sont celles du dashboard d'origine du projet : elles ne changent pas.
+Il suffit d'ajouter les autres.
+
 | Pin | Nom | Type | Min / Max | Rôle |
 |---|---|---|---|---|
-| V0 | Oiseau présent | Integer | 0 / 1 | affichage |
-| V1 | Oiseaux détectés | Integer | 0 / 100000 | affichage |
-| V2 | Maladie | String | — | affichage |
-| V3 | Confiance maladie | Integer | 0 / 100, unité % | affichage |
-| V4 | Buzzer oiseaux actif | Integer | 0 / 1, valeur par défaut 1 | **commande** (interrupteur) |
-| V5 | Température | Double | 0 / 50, unité °C | affichage |
-| V6 | Humidité | Double | 0 / 100, unité % | affichage |
-| V7 | Air anormal | Integer | 0 / 1 | affichage |
-| V8 | Ventilateur | Integer | 0 / 1 | affichage |
-| V9 | Mode ventilateur | Integer | 0 / 2 | **commande** : 0 auto, 1 marche, 2 arrêt |
-| V10 | Niveau incendie | Integer | 0 / 2 | affichage : 0 normal, 1 vigilance, 2 alerte |
-| V11 | Réarmement | Integer | 0 / 1 | **commande** (bouton) |
-| V12 | Message | String | — | affichage |
+| V0 | LED | Integer | 0 / 1 | affichage (dashboard d'origine) |
+| V1 | Porte ouverte | Integer | 0 / 1 | affichage |
+| V2 | Ouvrir la porte | Integer | 0 / 1 | **commande** (bouton) |
+| V3 | Température | Double | 0 / 50, unité °C | affichage (dashboard d'origine) |
+| V4 | Humidité | Double | 0 / 100, unité % | affichage (dashboard d'origine) |
+| V5 | Air anormal (MQ-135) | Integer | 0 / 1 | affichage (dashboard d'origine) |
+| V6 | Dernière carte | String | — | affichage (dashboard d'origine) |
+| V7 | Message | String | — | affichage (dashboard d'origine) |
+| V8 | Oiseau présent | Integer | 0 / 1 | affichage |
+| V9 | Oiseaux détectés | Integer | 0 / 100000 | affichage |
+| V10 | Maladie | String | — | affichage |
+| V11 | Confiance maladie | Integer | 0 / 100, unité % | affichage |
+| V12 | Buzzer oiseaux actif | Integer | 0 / 1, valeur par défaut 1 | **commande** (interrupteur) |
+| V13 | Ventilateur | Integer | 0 / 1 | affichage |
+| V14 | Mode ventilateur | Integer | 0 / 2 | **commande** : 0 auto, 1 marche, 2 arrêt |
+| V15 | Niveau incendie | Integer | 0 / 2 | affichage : 0 normal, 1 vigilance, 2 alerte |
+| V16 | Réarmement | Integer | 0 / 1 | **commande** (bouton) |
 
-Si votre offre Blynk limite le nombre de datastreams, supprimez les moins utiles (par exemple V1, V3, V7)
+Si votre offre Blynk limite le nombre de datastreams, supprimez les moins utiles (par exemple V9, V11)
 et mettez `null` à la place de la pin dans `config.yaml` (section `blynk.pins`).
 
 ## 2. Événements (notifications)
@@ -35,22 +42,23 @@ Onglet **Events > Add New Event**, avec ces **codes** exacts :
 | `incendie` | Alerte incendie | Critical | Push + e-mail |
 | `conservation` | Alerte conservation | Warning | Push |
 | `maladie` | Maladie détectée | Warning | Push |
+| `acces_refuse` | Carte refusée | Warning | Push |
 
 Dans chaque événement, onglet *Notifications* : activer les notifications et choisir le destinataire.
 Pensez à limiter la fréquence (*Limit*) pour ne pas être inondé.
 
 ## 3. Dashboard (application mobile ou web)
 
-Widgets conseillés :
+Widgets conseillés (en plus de ceux du dashboard d'origine) :
 
-- **Gauge** : V5 (température), V6 (humidité)
-- **LED** : V0 (oiseau), V7 (air anormal), V8 (ventilateur)
-- **Value Display** : V1, V3 ; **Label** : V2 (maladie), V12 (message)
-- **Switch** : V4 (buzzer oiseaux)
-- **Segmented Switch** ou **Menu** : V9 (Auto / Marche / Arrêt → valeurs 0 / 1 / 2)
-- **Level** ou **Value Display** coloré : V10 (incendie)
-- **Button** en mode *Push* : V11 (réarmement)
-- **Chart / SuperChart** : V5 et V6 pour l'historique
+- **Gauge** : V3 (température), V4 (humidité)
+- **LED** : V0 (LED), V1 (porte), V5 (air anormal), V8 (oiseau), V13 (ventilateur)
+- **Label** : V6 (dernière carte), V7 (message), V10 (maladie) ; **Value Display** : V9, V11
+- **Button** en mode *Push* : V2 (ouvrir la porte), V16 (réarmement incendie)
+- **Switch** : V12 (buzzer oiseaux)
+- **Segmented Switch** ou **Menu** : V14 (Auto / Marche / Arrêt → valeurs 0 / 1 / 2)
+- **Level** ou **Value Display** coloré : V15 (incendie)
+- **Chart / SuperChart** : V3 et V4 pour l'historique
 
 ## 4. Device et token
 

@@ -5,7 +5,8 @@ Prototype scolaire. **Un seul Raspberry Pi 4** surveille :
 | Station | Matériel | Fonctions |
 |---|---|---|
 | **Champ** | webcam USB n° 1, buzzer actif | Détection d'oiseaux (IA) → buzzer pour les chasser ; analyse des maladies des feuilles de tomate (IA) |
-| **Entrepôt** | webcam USB n° 2, DHT11, MQ-135, relais + mini ventilateur 5 V, buzzer (partagé) | Conservation des tomates (température, humidité, air) → ventilateur ; sécurité incendie → e-mail Gmail avec photo + sirène |
+| **Entrepôt** | webcam USB n° 2, DHT11, MQ-135, relais + mini ventilateur 5 V, buzzer (partagé), LED | Conservation des tomates (température, humidité, air) → ventilateur ; sécurité incendie → e-mail Gmail avec photo + sirène |
+| **Accès** | lecteur de badges RFID RC522, servo (porte) | Carte autorisée → porte ouverte 4 s ; carte refusée → buzzer 2 s ; journal des accès ; porte ouverte pour l'évacuation en cas d'incendie |
 
 Tout est affiché sur **Blynk**. Les modèles d'IA sont **pré-entraînés** et tournent **sur le Pi**, sans Internet.
 
@@ -17,18 +18,19 @@ config.yaml                seuils, broches GPIO, webcams, pins Blynk
 .env                       secrets (token Blynk, Gmail) - à créer depuis .env.example
 smecofarm/
   vision/                  oiseaux (EfficientDet-Lite0), maladies (MobileNetV2), flammes (couleur), webcams
-  capteurs/                DHT11, MQ-135, capteurs simulés
-  actionneurs/             ventilateur (relais), buzzer
+  capteurs/                DHT11, MQ-135, lecteur RFID, capteurs simulés
+  actionneurs/             ventilateur (relais), buzzer, LED, porte (servo)
   regles/                  logique conservation et incendie (testable sans matériel)
   services/                Blynk (API HTTP), e-mail Gmail, journal CSV, configuration
-  stations/                champ.py, entrepot.py
+  stations/                champ.py, entrepot.py, acces.py
   app.py                   assemblage et boucle principale
 models/                    modèles TFLite (oiseaux, maladies)
 docs/CABLAGE.md            câblage des capteurs ⚠️ à lire avant de brancher
 docs/BLYNK.md              configuration du dashboard Blynk
+docs/code_origine_smart_ecofarm.py   code d'origine du projet (référence)
 deploy/smecofarm.service   démarrage automatique au boot
 scripts/                   tests des modèles d'IA (image, dossier, webcam), précision, vitesse
-tests/                     tests automatiques (27 tests)
+tests/                     tests automatiques (32 tests)
 ```
 
 ## Fonctionnement
@@ -71,7 +73,24 @@ Trois indices sont surveillés :
 | 1 Vigilance | 1 indice (peut être une fausse alerte) | affiché sur Blynk, photo enregistrée |
 | 2 **Alerte** | ≥ 2 indices | **e-mail Gmail avec photo**, notification Blynk, **sirène**, **ventilateur coupé** (il attiserait le feu) |
 
-L'alerte reste active jusqu'au **réarmement** par le bouton Blynk (V11). Un seul e-mail toutes les 10 minutes au maximum.
+L'alerte reste active jusqu'au **réarmement** par le bouton Blynk (V16). Un seul e-mail toutes les 10 minutes au maximum.
+Pendant l'alerte, la **porte est ouverte et maintenue ouverte** pour l'évacuation, comme sur un vrai
+contrôle d'accès (limite : une porte ouverte apporte de l'air au feu ; option `ouvrir_si_incendie` dans `config.yaml`).
+
+### Station Accès : badge RFID et porte
+
+| Événement | Actions |
+|---|---|
+| Carte autorisée | porte ouverte 4 s (servo 90°), LED allumée, numéro de carte et « Accès autorisé » sur Blynk |
+| Carte refusée | buzzer 2 s, « Carte non reconnue » sur Blynk, notification `acces_refuse` |
+| Bouton Blynk V2 | ouverture de la porte à distance |
+| Alerte incendie | porte ouverte jusqu'au réarmement |
+
+- Les cartes autorisées sont dans `config.yaml` (section `acces`). Pour connaître le numéro d'une
+  nouvelle carte : `python scripts/lire_badge.py`.
+- Chaque passage est enregistré dans `data/acces_AAAA-MM-JJ.csv` (date, carte, autorisé / refusé).
+- Le buzzer est partagé, avec un ordre de priorité : sirène incendie > carte refusée > chasse aux oiseaux.
+- La LED s'allume, comme dans le code d'origine, si la température dépasse 30 °C ou si la porte est ouverte.
 
 ### MQ-135 sans ADS1115
 
@@ -115,8 +134,8 @@ EMAIL_TO=destinataire@gmail.com
 
 ### Blynk
 
-Voir [docs/BLYNK.md](docs/BLYNK.md) : datastreams V0 à V12, événements `incendie`, `conservation`,
-`maladie`, widgets conseillés.
+Voir [docs/BLYNK.md](docs/BLYNK.md) : les pins **V0 et V3 à V7** du dashboard d'origine sont conservées,
+les nouvelles vont de V1, V2 et V8 à V16 ; événements `incendie`, `conservation`, `maladie`, `acces_refuse`.
 
 ## Lancement
 
@@ -131,8 +150,8 @@ python main.py --simulation incendie --duree 90
 python main.py --simulation chaleur --duree 180
 
 # Avec le vrai matériel
-python main.py                      # champ + entrepôt
-python main.py --station entrepot   # une seule station
+python main.py                      # champ + entrepôt + accès
+python main.py --station acces      # une seule station (champ, entrepot ou acces)
 
 # Démarrage automatique au boot
 sudo cp deploy/smecofarm.service /etc/systemd/system/
@@ -140,7 +159,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now smecofarm
 journalctl -u smecofarm -f          # voir les messages
 ```
 
-En simulation, si `.env` est rempli, Blynk et l'e-mail fonctionnent vraiment : pratique pour
+La simulation n'est active qu'avec l'option `--simulation` : `python main.py` utilise toujours le vrai matériel.
+En simulation, une carte autorisée est présentée à 10 s et une carte inconnue à 20 s.
+Si `.env` est rempli, Blynk et l'e-mail fonctionnent vraiment : pratique pour
 tester le dashboard et la réception de l'e-mail avant de câbler les capteurs.
 
 Les données sont enregistrées dans `data/` : un fichier CSV par jour (une ligne par minute,
@@ -154,7 +175,8 @@ s'ouvre dans Excel), les photos d'événements dans `data/photos/` et le journal
 | Maladie | Image de `test_images/tomato/` devant la webcam (gros plan, bien éclairée) |
 | Chaleur | Souffler de l'air chaud (sèche-cheveux à distance) sur le DHT11 → ventilateur |
 | Air anormal | Allumette qu'on vient d'éteindre près du MQ-135 → ventilateur |
-| Incendie | **Vidéo de flammes** sur un téléphone devant la webcam de l'entrepôt **+** fumée d'allumette sur le MQ-135 → alerte, e-mail, sirène |
+| Badge | Carte autorisée → porte ouverte 4 s ; autre carte → buzzer 2 s |
+| Incendie | **Vidéo de flammes** sur un téléphone devant la webcam de l'entrepôt **+** fumée d'allumette sur le MQ-135 → alerte, e-mail, sirène, porte ouverte |
 
 ⚠️ Ne pas faire de vrai feu près du montage.
 
@@ -174,8 +196,9 @@ s'ouvre dans Excel), les photos d'événements dans `data/photos/` et le journal
   la précision sera plus faible. Le chou et le persil ne sont pas couverts (il faudrait un entraînement).
 
 ### Flammes : règle de couleur (sans IA)
-- Pixels rouge-orangé lumineux et saturés (R > 180, R ≥ G > B), zone qui **scintille** d'une image à l'autre,
-  confirmée sur 3 images de suite. Un objet orange immobile n'est pas pris pour une flamme.
+- Plages de couleurs HSV rouge et orange du **code d'origine** (au moins 2 % de l'image), avec nettoyage du masque.
+- En plus : la zone doit **scintiller** d'une image à l'autre, sur 3 images de suite. C'est indispensable dans un
+  entrepôt de tomates : des **tomates mûres ont la même couleur qu'une flamme**, mais elles ne bougent pas.
 - Des reflets ou une lampe orange qui bouge peuvent tromper la caméra : c'est pourquoi l'alerte demande **2 indices**.
 
 ### Tester les modèles seuls

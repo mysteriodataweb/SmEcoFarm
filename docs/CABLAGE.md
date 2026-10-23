@@ -1,26 +1,57 @@
 # Câblage sur le Raspberry Pi 4
 
-Le Pi n'a que deux broches 5 V (2 et 4) : reliez la broche 2 au rail « + » d'une breadboard et une broche GND au rail « − », puis branchez dessus tout ce qui demande du 5 V ou une masse.
+Ce câblage reprend celui du **code d'origine du projet** (`docs/code_origine_smart_ecofarm.py`),
+auquel s'ajoute le relais du ventilateur.
+
+Le Pi n'a que deux broches 5 V (2 et 4) et deux broches 3,3 V (1 et 17) : utilisez les rails « + » et « − »
+d'une breadboard pour brancher plusieurs éléments sur la même alimentation.
 
 Numéros GPIO = numérotation **BCM** (celle de `config.yaml`). Broche physique = position sur le connecteur 40 broches.
 
 | Élément | Broche du module | Raspberry Pi | Broche physique |
 |---|---|---|---|
 | **DHT11** | VCC (+) | 3,3 V | 1 |
-| | DATA (out) | GPIO4 | 7 |
+| | DATA (out) | GPIO17 | 11 |
 | | GND (−) | GND | 9 |
 | **MQ-135** | VCC | **5 V** (le chauffage a besoin de 5 V) | 2 (ou rail 5 V) |
 | | GND | GND | 6 |
-| | DO | GPIO17 **via pont diviseur** (voir ci-dessous) | 11 |
+| | DO | GPIO16 **via pont diviseur** (voir ci-dessous) | 36 |
 | | AO | non branché (il faudrait un ADS1115) | — |
-| **Module relais** | VCC | 5 V | 4 (ou rail 5 V) |
-| | GND | GND | 14 |
+| **Lecteur RFID RC522** | 3.3V | 3,3 V (**jamais 5 V**) | 17 |
+| | RST | comme dans votre montage actuel (habituellement GPIO25) | 22 |
+| | GND | GND | 20 |
+| | MISO | GPIO9 (SPI MISO) | 21 |
+| | MOSI | GPIO10 (SPI MOSI) | 19 |
+| | SCK | GPIO11 (SPI SCLK) | 23 |
+| | SDA (SS) | GPIO8 (SPI CE0) | 24 |
+| | IRQ | non branché | — |
+| **Servo de la porte** | signal (orange / jaune) | GPIO26 | 37 |
+| | + (rouge) | 5 V (rail 5 V) | 4 |
+| | − (marron / noir) | GND | 39 |
+| **LED** | + (patte longue), avec une résistance de 220 Ω | GPIO22 | 15 |
+| | − | GND | 14 |
+| **Buzzer actif** | + (patte longue) | GPIO23 | 16 |
+| | − | GND | 25 |
+| **Module relais** (ventilateur) | VCC | 5 V (rail 5 V) | — |
+| | GND | GND | 30 |
 | | IN | GPIO27 | 13 |
 | **Ventilateur 5 V** | + | borne **NO** du relais (la borne **COM** va au rail 5 V) | — |
-| | − | GND | 20 |
-| **Buzzer actif** | + (patte longue) | GPIO22 | 15 |
-| | − | GND | 25 |
-| **Webcams USB** | | ports USB (de préférence les ports USB 2 noirs pour l'une et USB 3 bleus pour l'autre) | — |
+| | − | GND | 34 |
+| **Webcams USB** | | ports USB | — |
+
+## Bus SPI pour le lecteur RFID
+
+Le lecteur RC522 utilise le bus SPI, désactivé par défaut. `install.sh` l'active ; sinon :
+`sudo raspi-config` > *Interface Options* > *SPI* > *Yes*, puis `sudo reboot`.
+Vérification : `ls /dev/spidev0.0` doit afficher le fichier.
+
+Pour connaître le numéro d'une nouvelle carte : `python scripts/lire_badge.py`, puis l'ajouter dans
+`config.yaml` (section `acces` > `cartes_autorisees`).
+
+## Servo
+
+Un servo consomme beaucoup au démarrage du mouvement. S'il tremble ou si le Pi redémarre quand la porte
+bouge, alimentez le servo avec une alimentation 5 V séparée (en reliant son GND au GND du Pi).
 
 ## ⚠️ Pont diviseur pour la sortie DO du MQ-135
 
@@ -28,7 +59,7 @@ Le module MQ-135 est alimenté en 5 V : sa sortie DO peut donc monter à 5 V.
 Les broches GPIO du Pi acceptent **3,3 V maximum** : sans protection, on risque d'abîmer le Pi.
 
 ```
-MQ-135 DO ──── 10 kΩ ────┬──── GPIO17 (broche 11)
+MQ-135 DO ──── 10 kΩ ────┬──── GPIO16 (broche 36)
                          │
                        20 kΩ
                          │
@@ -48,12 +79,12 @@ MQ-135 DO ──── 10 kΩ ────┬──── GPIO17 (broche 11)
 
 - La plupart des modules collent quand IN = 0 (« actif bas ») : c'est le réglage par défaut (`relais_actif_bas: true`).
   Si le ventilateur fait l'inverse de ce qui est affiché, mettre `false`.
-- Un mini ventilateur 5 V consomme peu et peut être alimenté par le 5 V du Pi. Utilisez l'alimentation officielle **5 V 3 A** du Pi 4 (deux webcams + ventilateur).
+- Un mini ventilateur 5 V consomme peu et peut être alimenté par le 5 V du Pi. Utilisez l'alimentation officielle **5 V 3 A** du Pi 4 (webcams, servo, ventilateur).
 
 ## Buzzer actif
 
 Un buzzer actif sonne dès qu'il est alimenté. S'il s'agit d'un **module** (petite carte avec 3 broches VCC / I/O / GND),
-brancher VCC sur 3,3 V, I/O sur GPIO22 et GND sur GND. Si c'est un **buzzer seul** qui sonne faiblement,
+brancher VCC sur 3,3 V, I/O sur GPIO23 et GND sur GND. Si c'est un **buzzer seul** qui sonne faiblement,
 ajouter un transistor (2N2222 + résistance de 1 kΩ sur la base) : une broche GPIO ne fournit que quelques mA.
 
 ## Deux webcams USB
