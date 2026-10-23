@@ -28,7 +28,8 @@ models/                    modèles TFLite (oiseaux, maladies)
 docs/CABLAGE.md            câblage des capteurs ⚠️ à lire avant de brancher
 docs/BLYNK.md              configuration du dashboard Blynk
 docs/code_origine_smart_ecofarm.py   code d'origine du projet (référence)
-deploy/smecofarm.service   démarrage automatique au boot
+lancer.sh                  lance le programme depuis n'importe où (double-clic, service)
+deploy/                    démarrage automatique et icône sur le bureau
 scripts/                   tests des modèles d'IA (image, dossier, webcam), précision, vitesse
 tests/                     tests automatiques (32 tests)
 ```
@@ -153,10 +154,9 @@ python main.py --simulation chaleur --duree 180
 python main.py                      # champ + entrepôt + accès
 python main.py --station acces      # une seule station (champ, entrepot ou acces)
 
-# Démarrage automatique au boot
-sudo cp deploy/smecofarm.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now smecofarm
-journalctl -u smecofarm -f          # voir les messages
+# Lancer sans taper de commande (voir la section ci-dessous)
+bash deploy/installer_demarrage_auto.sh   # démarrage automatique à l'allumage
+bash deploy/creer_raccourci_bureau.sh     # icône sur le bureau
 ```
 
 La simulation n'est active qu'avec l'option `--simulation` : `python main.py` utilise toujours le vrai matériel.
@@ -166,6 +166,16 @@ tester le dashboard et la réception de l'e-mail avant de câbler les capteurs.
 
 Les données sont enregistrées dans `data/` : un fichier CSV par jour (une ligne par minute,
 s'ouvre dans Excel), les photos d'événements dans `data/photos/` et le journal `smecofarm.log`.
+
+## Lancer sans terminal
+
+| Méthode | Installation (une seule fois) | Ensuite |
+|---|---|---|
+| **Démarrage automatique** (conseillé pour le prototype final) | `bash deploy/installer_demarrage_auto.sh` | Le programme démarre seul à chaque allumage du Pi, même sans écran, et redémarre en cas d'erreur |
+| **Icône sur le bureau** (pratique pour les tests) | `bash deploy/creer_raccourci_bureau.sh` | Double-clic sur « SmEcoFarm » : une fenêtre affiche les messages ; la fermer arrête le programme |
+
+Ne pas utiliser les deux en même temps : deux programmes se disputeraient les webcams et les GPIO.
+Pour arrêter le démarrage automatique : `sudo systemctl stop smecofarm` (ou `--retirer` pour le désinstaller).
 
 ## Démonstration sans danger
 
