@@ -174,7 +174,9 @@ s'ouvre dans Excel), les photos d'événements dans `data/photos/` et le journal
 | **Démarrage automatique** (conseillé pour le prototype final) | `bash deploy/installer_demarrage_auto.sh` | Le programme démarre seul à chaque allumage du Pi, même sans écran, et redémarre en cas d'erreur |
 | **Icône sur le bureau** (pratique pour les tests) | `bash deploy/creer_raccourci_bureau.sh` | Double-clic sur « SmEcoFarm » : une fenêtre affiche les messages ; la fermer arrête le programme |
 
-Ne pas utiliser les deux en même temps : deux programmes se disputeraient les webcams et les GPIO.
+| **IDE Python** (Thonny, VS Code) | dans Thonny : *Outils > Options > Interpréteur* > « environnement virtuel » > `.venv/bin/python` du projet | Ouvrir `lancer_ide.py`, choisir `SIMULATION` / `STATION` en haut du fichier, cliquer sur **Run** ; **Stop** arrête proprement |
+
+Ne lancer qu'une méthode à la fois : deux programmes se disputeraient les webcams et les GPIO.
 Pour arrêter le démarrage automatique : `sudo systemctl stop smecofarm` (ou `--retirer` pour le désinstaller).
 
 ## Démonstration sans danger
