@@ -14,6 +14,7 @@ Tout est affiché sur **Blynk**. Les modèles d'IA sont **pré-entraînés** et 
 
 ```
 main.py                    programme principal
+smart_ecofarm_ia.py        version « un seul fichier » du système (BlynkLib, RFID, pompe, FC-28...) + IA
 config.yaml                seuils, broches GPIO, webcams, pins Blynk
 .env                       secrets (token Blynk, Gmail) - à créer depuis .env.example
 smecofarm/
