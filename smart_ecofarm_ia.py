@@ -655,6 +655,13 @@ NOMS_MALADIES = {
 
 oiseaux_compteur = 0
 
+# [IA] Résultats affichés sur l'image de la fenêtre caméra
+derniers_oiseaux = []
+dernier_resultat_maladie = ""
+
+# Fenêtre vidéo en direct (nécessite l'écran du Pi, pas une connexion SSH)
+AFFICHER_CAMERA = True
+
 
 def charger_modele(chemin):
     """Charge un modèle TFLite avec le moteur installé sur le Pi."""
@@ -778,6 +785,8 @@ def ia_worker():
     global bird_alarm_until
     global bird_bip_periode
     global oiseaux_compteur
+    global derniers_oiseaux
+    global dernier_resultat_maladie
 
     try:
 
@@ -819,6 +828,7 @@ def ia_worker():
             # ---------- Détection d'oiseaux ----------
 
             oiseaux = detecteur.detecter(image)
+            derniers_oiseaux = oiseaux
             present = len(oiseaux) > 0
 
             if present and not oiseau_present:
@@ -860,6 +870,7 @@ def ia_worker():
                 incertain = confiance < SEUIL_MALADIE
 
                 texte = nom + (" (incertain)" if incertain else "")
+                dernier_resultat_maladie = f"{texte} {confiance:.0%}"
 
                 print(f"IA : analyse de la feuille : {texte} - {confiance:.0%}")
 
@@ -875,6 +886,39 @@ def ia_worker():
             time.sleep(2)
 
         time.sleep(max(0.0, INTERVALLE_OISEAUX - (time.time() - debut)))
+
+
+def afficher_camera():
+    """[IA] Affiche l'image de la webcam avec les résultats (appelée par la boucle principale)."""
+
+    with image_lock:
+        image = derniere_image
+
+    if image is None:
+        return True
+
+    vue = image.copy()
+
+    for score, (x1, y1, x2, y2) in derniers_oiseaux:
+        cv2.rectangle(vue, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(vue, f"Oiseau {score:.0%}", (x1 + 5, y1 + 22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+    lignes = [
+        "FEU POTENTIEL !" if fire_detected else "Feu : rien",
+        f"Oiseaux detectes : {oiseaux_compteur}",
+        "Feuille : " + (dernier_resultat_maladie or "en attente"),
+    ]
+    for i, ligne in enumerate(lignes):
+        couleur = (0, 0, 255) if (i == 0 and fire_detected) else (0, 255, 0)
+        # Accents retirés : OpenCV ne sait pas les dessiner
+        ligne = ligne.encode("ascii", "ignore").decode()
+        cv2.putText(vue, ligne, (10, 25 + 25 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
+
+    cv2.imshow("Smart EcoFarm - camera (touche q pour fermer)", vue)
+
+    # Touche q : ferme seulement la fenêtre, le système continue
+    return (cv2.waitKey(1) & 0xFF) != ord("q")
 
 
 # =====================================
@@ -1060,10 +1104,22 @@ try:
         "DHT11 + Ventilateur + FC-28 + Pompe + IA"
     )
 
+    fenetre_ouverte = AFFICHER_CAMERA
+
     while True:
 
         blynk.run()
         timer.run()
+
+        # [IA] Vidéo en direct
+        if fenetre_ouverte:
+            try:
+                fenetre_ouverte = afficher_camera()
+                if not fenetre_ouverte:
+                    cv2.destroyAllWindows()
+            except cv2.error as e:
+                print("Fenêtre caméra impossible (pas d'écran ?) :", e)
+                fenetre_ouverte = False
 
         time.sleep(0.01)
 
@@ -1082,6 +1138,11 @@ finally:
     ecrire_pompe(False)
 
     servo_pwm.stop()
+
+    try:
+        cv2.destroyAllWindows()
+    except cv2.error:
+        pass
 
     GPIO.cleanup()
 
